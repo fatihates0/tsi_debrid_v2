@@ -205,7 +205,7 @@ export default function DownloadList({
                                                 Herhangi bir indirme kaydı bulunamadı.
                                             </p>
                                             <p className="text-xs text-slate-400 max-w-sm">
-                                                Yeni bir link ekleyerek önbelleğe alabilir veya anında indirebilirsiniz.
+                                                Yeni bir link ekleyerek indirmeye başlayabilirsiniz.
                                             </p>
                                         </div>
                                     </td>
