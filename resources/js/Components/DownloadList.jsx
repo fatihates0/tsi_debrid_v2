@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Search, Layers, Download, Copy, RefreshCw, Trash2, CheckCircle2,
-    Clock, AlertCircle, User as UserIcon, FileText, CheckSquare
+    Clock, AlertCircle, User as UserIcon, FileText, CheckSquare,
+    ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight
 } from 'lucide-react';
 import { formatDate, getStatusConfig } from '../utils/formatters';
 
@@ -19,12 +20,27 @@ export default function DownloadList({
     onBulkDelete,
 }) {
     const [selectedUuids, setSelectedUuids] = useState([]);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [perPage, setPerPage] = useState(10);
+
+    // Reset pagination to first page when search or status filter changes
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchTerm, statusFilter]);
 
     // Clear selection when downloaded list changes or items are removed
     useEffect(() => {
         const validUuids = new Set(downloads.map((d) => d.uuid));
         setSelectedUuids((prev) => prev.filter((uuid) => validUuids.has(uuid)));
     }, [downloads]);
+
+    const totalItems = downloads.length;
+    const totalPages = Math.ceil(totalItems / perPage) || 1;
+    const safePage = Math.min(Math.max(1, currentPage), totalPages);
+
+    const startIndex = (safePage - 1) * perPage;
+    const endIndex = Math.min(startIndex + perPage, totalItems);
+    const paginatedDownloads = downloads.slice(startIndex, endIndex);
 
     const allSelected = downloads.length > 0 && downloads.every((d) => selectedUuids.includes(d.uuid));
 
@@ -55,7 +71,7 @@ export default function DownloadList({
     const statusTabs = [
         { id: 'all', label: 'Tüm Durumlar' },
         { id: 'completed', label: 'Hazır' },
-        { id: 'downloading', label: 'Hazırlananlar' },
+        { id: 'downloading', label: 'İndirilenler' },
         { id: 'pending', label: 'Bekleyenler' },
         { id: 'failed', label: 'Hatalı Olanlar' },
     ];
@@ -152,7 +168,7 @@ export default function DownloadList({
                     </thead>
                     <tbody className="divide-y divide-white/[0.04]">
                         <AnimatePresence>
-                            {downloads.length === 0 ? (
+                            {paginatedDownloads.length === 0 ? (
                                 <tr>
                                     <td colSpan="6" className="py-16 text-center text-slate-500">
                                         <div className="flex flex-col items-center justify-center gap-3">
@@ -169,7 +185,7 @@ export default function DownloadList({
                                     </td>
                                 </tr>
                             ) : (
-                                downloads.map((item) => {
+                                paginatedDownloads.map((item) => {
                                     const statusCfg = getStatusConfig(item.status);
                                     const isSelected = selectedUuids.includes(item.uuid);
                                     return (
@@ -256,7 +272,7 @@ export default function DownloadList({
                                                         )}
                                                     </span>
 
-                                                    {item.user_count > 1 && (
+                                                    {isSuperUser && item.user_count > 1 && (
                                                         <span
                                                             className="soft-badge-indigo px-2 py-0.5 rounded-full text-[9px] font-bold"
                                                             title={`${item.user_count} kullanıcı bu önbelleği paylaşıyor`}
@@ -338,7 +354,103 @@ export default function DownloadList({
                     </tbody>
                 </table>
             </div>
+
+            {/* Pagination Controls Footer */}
+            {totalItems > 0 && (
+                <div className="p-4 sm:px-6 border-t border-white/[0.06] bg-slate-900/40 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-400 font-medium">
+                    <div className="flex items-center gap-4 flex-wrap">
+                        <span>
+                            Gösterilen: <strong className="text-slate-200">{startIndex + 1}</strong> - <strong className="text-slate-200">{endIndex}</strong> / <strong className="text-slate-200">{totalItems}</strong> kayıt
+                        </span>
+
+                        <div className="flex items-center gap-1.5">
+                            <span className="text-slate-400">Sayfa Başına:</span>
+                            <select
+                                value={perPage}
+                                onChange={(e) => {
+                                    setPerPage(Number(e.target.value));
+                                    setCurrentPage(1);
+                                }}
+                                className="bg-slate-950 border border-white/10 rounded-lg px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                            >
+                                <option value={10}>10</option>
+                                <option value={15}>15</option>
+                                <option value={25}>25</option>
+                                <option value={50}>50</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    {totalPages > 1 && (
+                        <div className="flex items-center gap-1.5">
+                            <button
+                                onClick={() => setCurrentPage(1)}
+                                disabled={safePage === 1}
+                                className="p-1.5 rounded-lg border border-white/5 bg-slate-950 text-slate-400 hover:text-white hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                                title="İlk Sayfa"
+                            >
+                                <ChevronsLeft className="w-4 h-4" />
+                            </button>
+                            <button
+                                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                                disabled={safePage === 1}
+                                className="p-1.5 rounded-lg border border-white/5 bg-slate-950 text-slate-400 hover:text-white hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                                title="Önceki Sayfa"
+                            >
+                                <ChevronLeft className="w-4 h-4" />
+                            </button>
+
+                            {/* Page numbers */}
+                            <div className="flex items-center gap-1 px-1">
+                                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                                    .filter((p) => p === 1 || p === totalPages || Math.abs(p - safePage) <= 1)
+                                    .reduce((acc, p, i, arr) => {
+                                        if (i > 0 && p - arr[i - 1] > 1) {
+                                            acc.push('...');
+                                        }
+                                        acc.push(p);
+                                        return acc;
+                                    }, [])
+                                    .map((item, idx) =>
+                                        item === '...' ? (
+                                            <span key={`dots-${idx}`} className="px-1 text-slate-600">
+                                                ...
+                                            </span>
+                                        ) : (
+                                            <button
+                                                key={item}
+                                                onClick={() => setCurrentPage(item)}
+                                                className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${safePage === item
+                                                    ? 'bg-indigo-600 text-white shadow-md'
+                                                    : 'border border-white/5 bg-slate-950 text-slate-400 hover:text-white hover:bg-white/5'
+                                                    }`}
+                                            >
+                                                {item}
+                                            </button>
+                                        )
+                                    )}
+                            </div>
+
+                            <button
+                                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                                disabled={safePage === totalPages}
+                                className="p-1.5 rounded-lg border border-white/5 bg-slate-950 text-slate-400 hover:text-white hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                                title="Sonraki Sayfa"
+                            >
+                                <ChevronRight className="w-4 h-4" />
+                            </button>
+                            <button
+                                onClick={() => setCurrentPage(totalPages)}
+                                disabled={safePage === totalPages}
+                                className="p-1.5 rounded-lg border border-white/5 bg-slate-950 text-slate-400 hover:text-white hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                                title="Son Sayfa"
+                            >
+                                <ChevronsRight className="w-4 h-4" />
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
         </motion.div>
     );
 }
-

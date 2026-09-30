@@ -27,21 +27,10 @@ class DebridDownloadController extends Controller
     }
 
     /**
-     * Dashboard View
+     * Calculate dashboard statistics for a given user context.
      */
-    public function index()
+    protected function getStats(?User $user, bool $isSuperUser): array
     {
-        /** @var User|null $user */
-        $user = auth()->user();
-        $isSuperUser = $user?->isSuperUser() ?? false;
-
-        $query = DebridDownload::with('user');
-        if (! $isSuperUser && $user) {
-            $query->where('user_id', $user->id);
-        }
-
-        $downloads = $query->orderBy('created_at', 'desc')->paginate(15);
-
         $statsQuery = DebridDownload::query();
         if (! $isSuperUser && $user) {
             $statsQuery->where('user_id', $user->id);
@@ -69,7 +58,7 @@ class DebridDownloadController extends Controller
         $freeDiskSpace = @disk_free_space($storagePath);
         $totalDiskSpace = @disk_total_space($storagePath);
 
-        $stats = [
+        return [
             'total_downloads' => (clone $statsQuery)->count(),
             'completed_downloads' => $completedDownloadsCount,
             'total_bytes_cached' => $totalBytesCached,
@@ -78,6 +67,24 @@ class DebridDownloadController extends Controller
             'free_disk_space' => $freeDiskSpace !== false ? (int) $freeDiskSpace : 0,
             'total_disk_space' => $totalDiskSpace !== false ? (int) $totalDiskSpace : 0,
         ];
+    }
+
+    /**
+     * Dashboard View
+     */
+    public function index()
+    {
+        /** @var User|null $user */
+        $user = auth()->user();
+        $isSuperUser = $user?->isSuperUser() ?? false;
+
+        $query = DebridDownload::with('user');
+        if (! $isSuperUser && $user) {
+            $query->where('user_id', $user->id);
+        }
+
+        $downloads = $query->orderBy('created_at', 'desc')->paginate(15);
+        $stats = $this->getStats($user, $isSuperUser);
 
         $userStats = [];
         if ($isSuperUser) {
@@ -394,10 +401,13 @@ class DebridDownloadController extends Controller
             $downloads->makeHidden(['user_ip']);
         }
 
+        $stats = $this->getStats($user, $isSuperUser);
+
         return response()->json([
             'success' => true,
             'is_superuser' => $isSuperUser,
             'data' => $downloads,
+            'stats' => $stats,
         ]);
     }
 
