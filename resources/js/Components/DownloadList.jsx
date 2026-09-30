@@ -58,6 +58,27 @@ export default function DownloadList({
         );
     };
 
+    const selectedCompletedItems = downloads.filter(
+        (d) => selectedUuids.includes(d.uuid) && d.status === 'completed' && d.download_url
+    );
+
+    const handleBulkDownload = () => {
+        if (selectedCompletedItems.length === 0) return;
+        selectedCompletedItems.forEach((item, index) => {
+            setTimeout(() => {
+                const fullUrl = item.download_url.startsWith('http://') || item.download_url.startsWith('https://')
+                    ? item.download_url
+                    : window.location.origin + (item.download_url.startsWith('/') ? '' : '/') + item.download_url;
+                const link = document.createElement('a');
+                link.href = fullUrl;
+                link.download = item.filename || '';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }, index * 400);
+        });
+    };
+
     const handleConfirmBulkDelete = () => {
         if (selectedUuids.length === 0) return;
         if (confirm(`Seçilen ${selectedUuids.length} adet indirme kaydını silmek istediğinize emin misiniz?`)) {
@@ -96,8 +117,22 @@ export default function DownloadList({
                         </span>
                     </h3>
 
-                    {/* Bulk Delete Button Header Action */}
+                    {/* Bulk Actions Header Toolbar */}
                     <AnimatePresence>
+                        {selectedCompletedItems.length > 0 && (
+                            <motion.button
+                                initial={{ opacity: 0, scale: 0.9 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.9 }}
+                                onClick={handleBulkDownload}
+                                className="ml-2 px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-sm"
+                                title="Seçilen Hazır Dosyaları Toplu İndir"
+                            >
+                                <Download className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>Seçilenleri İndir ({selectedCompletedItems.length})</span>
+                            </motion.button>
+                        )}
+
                         {selectedUuids.length > 0 && (
                             <motion.button
                                 initial={{ opacity: 0, scale: 0.9 }}
@@ -272,6 +307,12 @@ export default function DownloadList({
                                                         )}
                                                     </span>
 
+                                                    {item.status === 'downloading' && item.formatted_eta && (
+                                                        <span className="text-[10px] font-mono text-indigo-300 font-semibold px-2 py-0.5 rounded-md bg-indigo-500/10 border border-indigo-500/20" title="Tahmini Kalan Süre">
+                                                            ⏱ {item.formatted_eta}
+                                                        </span>
+                                                    )}
+
                                                     {isSuperUser && item.user_count > 1 && (
                                                         <span
                                                             className="soft-badge-indigo px-2 py-0.5 rounded-full text-[9px] font-bold"
@@ -284,10 +325,10 @@ export default function DownloadList({
 
                                                 {item.status === 'failed' && item.error_message && (
                                                     <p
-                                                        className="text-[10px] text-rose-400 mt-1 max-w-xs truncate font-medium"
+                                                        className="text-[10px] text-rose-400 mt-1 max-w-[150px] truncate font-medium block"
                                                         title={item.error_message}
                                                     >
-                                                        {item.error_message}
+                                                        {item.error_message.replace(/^Real-Debrid Unrestrict Hatası/, 'Hata')}
                                                     </p>
                                                 )}
                                             </td>

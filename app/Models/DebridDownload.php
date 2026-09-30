@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -49,6 +50,7 @@ class DebridDownload extends Model
         'formatted_downloaded',
         'download_url',
         'is_cached',
+        'formatted_eta',
     ];
 
     protected static function boot()
@@ -99,6 +101,46 @@ class DebridDownload extends Model
     public function getIsCachedAttribute(): bool
     {
         return $this->status === 'completed' && ! empty($this->storage_path) && Storage::disk('public')->exists($this->storage_path);
+    }
+
+    public function getFormattedEtaAttribute(): ?string
+    {
+        if ($this->status !== 'downloading' || $this->filesize <= 0 || $this->downloaded_bytes <= 0) {
+            return null;
+        }
+
+        $remainingBytes = max(0, $this->filesize - $this->downloaded_bytes);
+        if ($remainingBytes <= 0) {
+            return 'Tamamlanıyor...';
+        }
+
+        $startTimestamp = Cache::get("download_start_{$this->link_hash}", $this->created_at?->timestamp ?? now()->timestamp);
+        $elapsedSeconds = max(1, now()->timestamp - $startTimestamp);
+        $avgSpeed = $this->downloaded_bytes / $elapsedSeconds;
+
+        if ($avgSpeed <= 0) {
+            return null;
+        }
+
+        $etaSeconds = (int) ceil($remainingBytes / $avgSpeed);
+
+        if ($etaSeconds < 60) {
+            return "~{$etaSeconds} sn kaldı";
+        }
+
+        $minutes = (int) round($etaSeconds / 60);
+        if ($minutes < 60) {
+            return "~{$minutes} dk kaldı";
+        }
+
+        $hours = floor($minutes / 60);
+        $remMin = $minutes % 60;
+
+        if ($remMin === 0) {
+            return "~{$hours} sa kaldı";
+        }
+
+        return "~{$hours} sa {$remMin} dk kaldı";
     }
 
     private function formatBytes(?int $bytes, int $precision = 2): string

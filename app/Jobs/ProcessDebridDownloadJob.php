@@ -90,6 +90,7 @@ class ProcessDebridDownloadJob implements ShouldQueue
 
             // Step 2: Download file to local storage
             DebridDownload::where('link_hash', $linkHash)->where('status', '!=', 'cancelled')->update(['status' => 'downloading']);
+            Cache::remember("download_start_{$linkHash}", now()->addHours(6), fn () => now()->timestamp);
 
             $safeFilename = sanitize_filename($download->filename ?: 'file_'.$download->uuid);
             $relativeDir = 'downloads/'.$download->uuid;
