@@ -312,15 +312,31 @@ class DebridDownloadController extends Controller
                 continue;
             }
 
-            // Brand new link -> Create record and dispatch job
-            $download = DebridDownload::create([
+            // Brand new link -> Fetch file info (unrestrict) first, then create record & dispatch job
+            $downloadData = [
                 'uuid' => (string) Str::uuid(),
                 'user_id' => $userId,
                 'original_link' => $originalLink,
                 'link_hash' => $linkHash,
                 'status' => 'pending',
                 'user_ip' => $request->ip(),
-            ]);
+            ];
+
+            try {
+                $unrestrictResult = $this->rdService->unrestrictLink($originalLink);
+                if (! empty($unrestrictResult['success']) && ! empty($unrestrictResult['data']['download_link'])) {
+                    $data = $unrestrictResult['data'];
+                    $downloadData['debrid_id'] = $data['id'] ?? null;
+                    $downloadData['debrid_link'] = $data['download_link'];
+                    $downloadData['filename'] = $data['filename'] ?? 'file_'.$downloadData['uuid'];
+                    $downloadData['filesize'] = $data['filesize'] ?? 0;
+                    $downloadData['mime_type'] = $data['mime_type'] ?? null;
+                }
+            } catch (\Throwable $e) {
+                // If unrestrict fails or times out, ProcessDebridDownloadJob will handle unrestrict
+            }
+
+            $download = DebridDownload::create($downloadData);
 
             if ($queueDriver === 'sync') {
                 ProcessDebridDownloadJob::dispatchAfterResponse($download);

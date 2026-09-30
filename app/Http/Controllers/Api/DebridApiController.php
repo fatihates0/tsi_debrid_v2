@@ -141,15 +141,32 @@ class DebridApiController extends Controller
             ], 202);
         }
 
-        // 3. Brand new link -> create record & dispatch job
-        $download = DebridDownload::create([
+        // 3. Brand new link -> fetch file info & create record & dispatch job
+        $downloadData = [
             'uuid' => (string) Str::uuid(),
             'user_id' => $userId,
             'original_link' => $link,
             'link_hash' => $linkHash,
             'status' => 'pending',
             'user_ip' => $request->ip(),
-        ]);
+        ];
+
+        try {
+            $rdService = app(RealDebridService::class);
+            $unrestrictResult = $rdService->unrestrictLink($link);
+            if (! empty($unrestrictResult['success']) && ! empty($unrestrictResult['data']['download_link'])) {
+                $data = $unrestrictResult['data'];
+                $downloadData['debrid_id'] = $data['id'] ?? null;
+                $downloadData['debrid_link'] = $data['download_link'];
+                $downloadData['filename'] = $data['filename'] ?? 'file_'.$downloadData['uuid'];
+                $downloadData['filesize'] = $data['filesize'] ?? 0;
+                $downloadData['mime_type'] = $data['mime_type'] ?? null;
+            }
+        } catch (\Throwable $e) {
+            // Fall back to job
+        }
+
+        $download = DebridDownload::create($downloadData);
 
         if (config('queue.default') === 'sync') {
             ProcessDebridDownloadJob::dispatchAfterResponse($download);

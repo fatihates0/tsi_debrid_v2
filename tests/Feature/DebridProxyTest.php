@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Services\RealDebridService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
@@ -392,5 +393,48 @@ class DebridProxyTest extends TestCase
 
         $this->assertDatabaseMissing('debrid_downloads', ['uuid' => 'oldest-uuid']);
         Storage::disk('public')->assertMissing('downloads/oldest-uuid/old.rar');
+    }
+
+    public function test_it_checks_file_info_first_when_adding_batch_links()
+    {
+        Queue::fake();
+        Http::fake([
+            'https://api.real-debrid.com/rest/1.0/unrestrict/link' => Http::response([
+                'id' => 'RD999',
+                'filename' => 'BatchMovie2024.mp4',
+                'filesize' => 1073741824,
+                'download' => 'https://download.real-debrid.com/d/RD999/BatchMovie2024.mp4',
+                'mimeType' => 'video/mp4',
+            ], 200),
+        ]);
+
+        config(['services.realdebrid.api_token' => 'fake_api_token']);
+
+        $link1 = 'https://mega.nz/file/batch1#key1';
+        $link2 = 'https://mega.nz/file/batch2#key2';
+
+        $response = $this->post('/downloads', [
+            'link' => "{$link1}\n{$link2}",
+        ]);
+
+        $response->assertRedirect('/');
+
+        $this->assertDatabaseHas('debrid_downloads', [
+            'original_link' => $link1,
+            'filename' => 'BatchMovie2024.mp4',
+            'filesize' => 1073741824,
+            'debrid_link' => 'https://download.real-debrid.com/d/RD999/BatchMovie2024.mp4',
+            'status' => 'pending',
+        ]);
+
+        $this->assertDatabaseHas('debrid_downloads', [
+            'original_link' => $link2,
+            'filename' => 'BatchMovie2024.mp4',
+            'filesize' => 1073741824,
+            'debrid_link' => 'https://download.real-debrid.com/d/RD999/BatchMovie2024.mp4',
+            'status' => 'pending',
+        ]);
+
+        Queue::assertPushed(ProcessDebridDownloadJob::class, 2);
     }
 }
