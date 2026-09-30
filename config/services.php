@@ -39,6 +39,7 @@ return [
         'api_token' => env('REAL_DEBRID_API_TOKEN', ''),
         'base_url' => env('REAL_DEBRID_BASE_URL', 'https://api.real-debrid.com/rest/1.0/'),
         'allowed_hosts' => env('DEBRID_ALLOWED_HOSTS', ''),
+        'min_free_disk_space_mb' => (int) env('MIN_FREE_DISK_SPACE_MB', 0),
     ],
 
     'xenforo' => [

@@ -116,14 +116,11 @@ class DebridDownload extends Model
 
     /**
      * Ensure enough free disk space is available before downloading a new file.
-     * Deletes oldest completed cached files one by one until free space >= requiredBytes.
+     * Deletes oldest completed cached files one by one if free space drops below MIN_FREE_DISK_SPACE_MB
+     * or if requiredBytes + safetyMargin exceeds available disk space.
      */
-    public static function ensureFreeDiskSpace(int $requiredBytes): int
+    public static function ensureFreeDiskSpace(int $requiredBytes = 0): int
     {
-        if ($requiredBytes <= 0) {
-            return 0;
-        }
-
         $storagePath = Storage::disk('public')->path('');
         $freeSpace = @disk_free_space($storagePath);
 
@@ -131,13 +128,21 @@ class DebridDownload extends Model
             return 0;
         }
 
-        // Safety margin of 50 MB
-        $safetyMargin = 50 * 1024 * 1024;
-        $bytesNeeded = ($requiredBytes + $safetyMargin) - $freeSpace;
+        $minFreeMb = (int) config('services.realdebrid.min_free_disk_space_mb', 0);
+        $minFreeBytes = $minFreeMb * 1024 * 1024;
+        $safetyMargin = 50 * 1024 * 1024; // 50 MB safety margin
 
-        if ($bytesNeeded <= 0) {
+        // Minimum free space threshold after accounting for the new file
+        $targetFreeSpace = max($minFreeBytes, $requiredBytes > 0 ? ($requiredBytes + $safetyMargin) : 0);
+        if ($minFreeBytes > 0 && $requiredBytes > 0) {
+            $targetFreeSpace = max($targetFreeSpace, $minFreeBytes + $requiredBytes);
+        }
+
+        if ($freeSpace >= $targetFreeSpace) {
             return 0;
         }
+
+        $bytesNeeded = $targetFreeSpace - $freeSpace;
 
         $oldestDownloads = static::where('status', 'completed')
             ->orderBy('created_at', 'asc')

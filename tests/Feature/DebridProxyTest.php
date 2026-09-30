@@ -367,4 +367,30 @@ class DebridProxyTest extends TestCase
         $this->assertDatabaseMissing('debrid_downloads', ['uuid' => 'bulk-uuid-1']);
         $this->assertDatabaseMissing('debrid_downloads', ['uuid' => 'bulk-uuid-2']);
     }
+
+    public function test_it_deletes_oldest_cache_when_free_space_threshold_is_breached()
+    {
+        Storage::fake('public');
+        $user = auth()->user();
+
+        // Create older completed record
+        $oldFile = DebridDownload::create([
+            'uuid' => 'oldest-uuid',
+            'user_id' => $user->id,
+            'original_link' => 'https://mega.nz/file/oldest',
+            'link_hash' => md5('https://mega.nz/file/oldest'),
+            'status' => 'completed',
+            'storage_path' => 'downloads/oldest-uuid/old.rar',
+            'created_at' => now()->subDays(5),
+        ]);
+        Storage::disk('public')->put('downloads/oldest-uuid/old.rar', 'content');
+
+        // Set huge min free disk space requirement in config to force pruning
+        config(['services.realdebrid.min_free_disk_space_mb' => 999999999]);
+
+        $freed = DebridDownload::ensureFreeDiskSpace(1024);
+
+        $this->assertDatabaseMissing('debrid_downloads', ['uuid' => 'oldest-uuid']);
+        Storage::disk('public')->assertMissing('downloads/oldest-uuid/old.rar');
+    }
 }

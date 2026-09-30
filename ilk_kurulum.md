@@ -50,6 +50,9 @@ REAL_DEBRID_API_TOKEN=your_real_debrid_api_token_here
 # İndirmeye İzin Verilen Sunucu Host'ları (Virgülle ayırın, boş bırakırsanız tüm sunuculara izin verilir)
 DEBRID_ALLOWED_HOSTS=mega.nz,turbobit.net,rapidgator.net,1fichier.com,ddownload.com
 
+# Minimum Boş Disk Alanı (MB cinsinden). Disk alanı bu sınırın altına düşerse ilk önbelleklenen dosya otomatik silinir. (Örn: 5000 = 5 GB)
+MIN_FREE_DISK_SPACE_MB=5000
+
 # XenForo Entegrasyonu ve Veritabanı Bağlantısı
 XENFORO_URL=https://xenforositeniz.com
 XENFORO_DB_HOST=127.0.0.1
