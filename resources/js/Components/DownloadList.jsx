@@ -18,6 +18,7 @@ export default function DownloadList({
     onRetry,
     onDelete,
     onBulkDelete,
+    onOpenBulkDownload,
 }) {
     const [selectedUuids, setSelectedUuids] = useState([]);
     const [currentPage, setCurrentPage] = useState(1);
@@ -64,19 +65,9 @@ export default function DownloadList({
 
     const handleBulkDownload = () => {
         if (selectedCompletedItems.length === 0) return;
-        selectedCompletedItems.forEach((item, index) => {
-            setTimeout(() => {
-                const fullUrl = item.download_url.startsWith('http://') || item.download_url.startsWith('https://')
-                    ? item.download_url
-                    : window.location.origin + (item.download_url.startsWith('/') ? '' : '/') + item.download_url;
-                const link = document.createElement('a');
-                link.href = fullUrl;
-                link.download = item.filename || '';
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-            }, index * 400);
-        });
+        if (onOpenBulkDownload) {
+            onOpenBulkDownload(selectedCompletedItems);
+        }
     };
 
     const handleConfirmBulkDelete = () => {

@@ -7,4 +7,4 @@
 # socks5://185.100.20.10:1080
 # socks5://kullanici:sifre@185.100.20.10:1080
 
-# http://2jJLuNDEMkmU:LrGfYeR5dYcb@84.55.0.25:5433
+http://2jJLuNDEMkmU:LrGfYeR5dYcb@84.55.0.25:5433

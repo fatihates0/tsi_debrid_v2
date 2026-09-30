@@ -8,6 +8,7 @@ import LinkSubmissionForm from '../Components/LinkSubmissionForm';
 import DownloadList from '../Components/DownloadList';
 import SuperUserModal from '../Components/SuperUserModal';
 import RdStatusModal from '../Components/RdStatusModal';
+import BulkDownloadModal from '../Components/BulkDownloadModal';
 import ToastContainer from '../Components/ToastContainer';
 
 export default function Dashboard({
@@ -30,6 +31,8 @@ export default function Dashboard({
     const [toasts, setToasts] = useState([]);
     const [showSuperUserModal, setShowSuperUserModal] = useState(false);
     const [showRdModal, setShowRdModal] = useState(false);
+    const [showBulkModal, setShowBulkModal] = useState(false);
+    const [bulkModalItems, setBulkModalItems] = useState([]);
     const [polling, setPolling] = useState(true);
 
     const { data, setData, post, processing, reset } = useForm({
@@ -225,6 +228,10 @@ export default function Dashboard({
                     onRetry={handleRetryDownload}
                     onDelete={handleDeleteDownload}
                     onBulkDelete={handleBulkDeleteDownload}
+                    onOpenBulkDownload={(items) => {
+                        setBulkModalItems(items);
+                        setShowBulkModal(true);
+                    }}
                 />
             </main>
 
@@ -242,6 +249,16 @@ export default function Dashboard({
                     rdInfo={rdInfo}
                     onClose={() => setShowRdModal(false)}
                     onRefresh={refreshRdStatus}
+                />
+            )}
+
+            {showBulkModal && (
+                <BulkDownloadModal
+                    items={bulkModalItems}
+                    onClose={() => setShowBulkModal(false)}
+                    onCopyAll={(text, count) => {
+                        addToast(`${count} adet indirme bağlantısı panoya kopyalandı! IDM veya indirme yöneticinize yapıştırabilirsiniz.`, 'success');
+                    }}
                 />
             )}
         </div>
