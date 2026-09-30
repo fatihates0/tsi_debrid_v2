@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -109,7 +110,14 @@ class DebridDownloadController extends Controller
             }
         }
 
-        return view('dashboard', compact('downloads', 'stats', 'isSuperUser', 'userStats'));
+        return Inertia::render('Dashboard', [
+            'downloads' => $downloads,
+            'stats' => $stats,
+            'isSuperUser' => $isSuperUser,
+            'userStats' => $userStats,
+            'rdInfo' => $this->rdService->getUserInfo(),
+            'allowedHosts' => RealDebridService::getAllowedHosts(),
+        ]);
     }
 
     /**
@@ -140,129 +148,199 @@ class DebridDownloadController extends Controller
         }
 
         $request->validate([
-            'link' => 'required|url',
+            'link' => 'required|string',
         ], [
-            'link.required' => 'Lütfen geçerli bir indirme bağlantısı girin.',
-            'link.url' => 'Geçerli bir URL formatı olmalıdır.',
+            'link.required' => 'Lütfen geçerli en az bir indirme bağlantısı girin.',
         ]);
 
-        $userId = $user?->id;
-        $originalLink = trim($request->input('link'));
-        $linkHash = md5($originalLink);
+        $rawInput = $request->input('link') ?? $request->input('links') ?? '';
+        if (is_array($rawInput)) {
+            $rawInput = implode("\n", $rawInput);
+        }
 
-        // 1. Check if the current user ALREADY has this link in their list
-        $userExisting = DebridDownload::when($userId, function ($q) use ($userId) {
-            return $q->where('user_id', $userId);
-        })->where('link_hash', $linkHash)->first();
+        // Split multi-line / space / comma separated URLs
+        $allUrls = array_values(array_unique(array_filter(
+            array_map('trim', preg_split('/[\r\n\s,]+/', (string) $rawInput, -1, PREG_SPLIT_NO_EMPTY)),
+            fn ($url) => filter_var($url, FILTER_VALIDATE_URL) !== false
+        )));
 
-        if ($userExisting) {
-            if ($userExisting->status === 'completed' && $userExisting->is_cached) {
-                if ($request->wantsJson()) {
-                    return response()->json([
-                        'success' => true,
-                        'message' => 'Bu bağlantı zaten indirme listenizde mevcut ve önbellekte hazır!',
-                        'cached' => true,
-                        'data' => $userExisting,
-                    ]);
-                }
-
-                return redirect()->route('dashboard')->with('success', '⚡ Bu bağlantı zaten listenizde mevcut ve önbellekte hazır!');
+        if (empty($allUrls)) {
+            $errorMsg = 'Lütfen geçerli en az bir indirme bağlantısı (URL) girin.';
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $errorMsg,
+                    'errors' => ['link' => [$errorMsg]],
+                ], 422);
             }
 
-            if (in_array($userExisting->status, ['pending', 'unrestricting', 'downloading'])) {
-                if ($request->wantsJson()) {
-                    return response()->json([
-                        'success' => true,
-                        'message' => 'Bu dosya şu an sunucuda indiriliyor...',
-                        'cached' => false,
-                        'data' => $userExisting,
-                    ]);
-                }
+            return redirect()->back()->withErrors(['link' => $errorMsg]);
+        }
 
-                return redirect()->route('dashboard')->with('info', '⌛ Dosya şu an sunucumuza indiriliyor, canlı durum tablosundan takip edebilirsiniz.');
+        // Host validation check for all URLs
+        $allowedUrls = [];
+        foreach ($allUrls as $url) {
+            if (RealDebridService::isHostAllowed($url)) {
+                $allowedUrls[] = $url;
             }
         }
 
-        // 2. Check if ANY active or completed download exists in the DB for this link (from another user)
-        $activeGlobal = DebridDownload::where('link_hash', $linkHash)
-            ->whereIn('status', ['completed', 'downloading', 'unrestricting', 'pending'])
-            ->orderBy('id', 'desc')
-            ->first();
+        if (empty($allowedUrls)) {
+            $allowedList = implode(', ', RealDebridService::getAllowedHosts());
+            $errorMsg = "Girilen bağlantı(lar) izin verilen sunucular arasında değil. İzin verilen sunucular: {$allowedList}";
 
-        if ($activeGlobal) {
-            // Attach existing active/completed download to this user!
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $errorMsg,
+                    'errors' => ['link' => [$errorMsg]],
+                ], 422);
+            }
+
+            return redirect()->back()->withErrors(['link' => $errorMsg]);
+        }
+
+        $userId = $user?->id;
+        $queueDriver = config('queue.default');
+
+        // Single link special response compatibility
+        if (count($allowedUrls) === 1) {
+            $originalLink = $allowedUrls[0];
+            $linkHash = md5($originalLink);
+
+            // 1. Check if current user ALREADY has this link
+            $userExisting = DebridDownload::when($userId, fn ($q) => $q->where('user_id', $userId))
+                ->where('link_hash', $linkHash)
+                ->first();
+
+            if ($userExisting) {
+                if ($request->wantsJson()) {
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'Bu bağlantı zaten indirme listenizde mevcut!',
+                        'cached' => $userExisting->status === 'completed',
+                        'data' => $userExisting,
+                    ], 200);
+                }
+
+                return redirect()->route('dashboard')->with('info', 'Bu bağlantı zaten listenizde mevcut.');
+            }
+
+            // 2. Check if global active download exists for another user
+            $activeGlobal = DebridDownload::where('link_hash', $linkHash)
+                ->whereIn('status', ['completed', 'downloading', 'unrestricting', 'pending'])
+                ->orderBy('id', 'desc')
+                ->first();
+
+            if ($activeGlobal) {
+                $download = DebridDownload::create([
+                    'uuid' => (string) Str::uuid(),
+                    'user_id' => $userId,
+                    'original_link' => $originalLink,
+                    'link_hash' => $linkHash,
+                    'debrid_id' => $activeGlobal->debrid_id,
+                    'debrid_link' => $activeGlobal->debrid_link,
+                    'filename' => $activeGlobal->filename,
+                    'filesize' => $activeGlobal->filesize,
+                    'downloaded_bytes' => $activeGlobal->downloaded_bytes,
+                    'status' => $activeGlobal->status,
+                    'mime_type' => $activeGlobal->mime_type,
+                    'storage_path' => $activeGlobal->storage_path,
+                    'user_ip' => $request->ip(),
+                ]);
+
+                if ($request->wantsJson()) {
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'Bu bağlantı daha önceden indirildiği için doğrudan hesabınıza eklendi!',
+                        'cached' => $activeGlobal->status === 'completed',
+                        'data' => $download,
+                    ], 200);
+                }
+
+                return redirect()->route('dashboard')->with('success', 'Dosya hesabınıza eklendi!');
+            }
+        }
+
+        $processedDownloads = [];
+
+        foreach ($allowedUrls as $originalLink) {
+            $linkHash = md5($originalLink);
+
+            // Check if current user ALREADY has this link
+            $userExisting = DebridDownload::when($userId, fn ($q) => $q->where('user_id', $userId))
+                ->where('link_hash', $linkHash)
+                ->first();
+
+            if ($userExisting) {
+                $processedDownloads[] = $userExisting;
+
+                continue;
+            }
+
+            // Check if global active download exists for another user
+            $activeGlobal = DebridDownload::where('link_hash', $linkHash)
+                ->whereIn('status', ['completed', 'downloading', 'unrestricting', 'pending'])
+                ->orderBy('id', 'desc')
+                ->first();
+
+            if ($activeGlobal) {
+                $download = DebridDownload::create([
+                    'uuid' => (string) Str::uuid(),
+                    'user_id' => $userId,
+                    'original_link' => $originalLink,
+                    'link_hash' => $linkHash,
+                    'debrid_id' => $activeGlobal->debrid_id,
+                    'debrid_link' => $activeGlobal->debrid_link,
+                    'filename' => $activeGlobal->filename,
+                    'filesize' => $activeGlobal->filesize,
+                    'downloaded_bytes' => $activeGlobal->downloaded_bytes,
+                    'status' => $activeGlobal->status,
+                    'mime_type' => $activeGlobal->mime_type,
+                    'storage_path' => $activeGlobal->storage_path,
+                    'user_ip' => $request->ip(),
+                ]);
+                $processedDownloads[] = $download;
+
+                continue;
+            }
+
+            // Brand new link -> Create record and dispatch job
             $download = DebridDownload::create([
                 'uuid' => (string) Str::uuid(),
                 'user_id' => $userId,
                 'original_link' => $originalLink,
                 'link_hash' => $linkHash,
-                'debrid_id' => $activeGlobal->debrid_id,
-                'debrid_link' => $activeGlobal->debrid_link,
-                'filename' => $activeGlobal->filename,
-                'filesize' => $activeGlobal->filesize,
-                'downloaded_bytes' => $activeGlobal->downloaded_bytes,
-                'status' => $activeGlobal->status,
-                'mime_type' => $activeGlobal->mime_type,
-                'storage_path' => $activeGlobal->storage_path,
+                'status' => 'pending',
                 'user_ip' => $request->ip(),
-                'use_remote' => $activeGlobal->use_remote,
             ]);
 
-            if ($activeGlobal->status === 'completed' && $activeGlobal->is_cached) {
-                if ($request->wantsJson()) {
-                    return response()->json([
-                        'success' => true,
-                        'message' => 'Bu bağlantı daha önceden indirildiği için doğrudan hesabınıza eklendi ve hazır!',
-                        'cached' => true,
-                        'data' => $download,
-                    ]);
-                }
-
-                return redirect()->route('dashboard')->with('success', '⚡ Dosya daha önceden indirildiği için doğrudan hesabınıza eklendi!');
+            if ($queueDriver === 'sync') {
+                ProcessDebridDownloadJob::dispatchAfterResponse($download);
+            } else {
+                ProcessDebridDownloadJob::dispatch($download);
             }
 
-            // In progress by another user
-            if ($request->wantsJson()) {
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Bu bağlantı daha önceden başlatılmış, hesabınıza eklendi ve indirilmesi bekleniyor.',
-                    'cached' => false,
-                    'data' => $download,
-                ]);
-            }
-
-            return redirect()->route('dashboard')->with('info', '⌛ Aktif indirme hesabınıza eklendi, tamamlandığında hazıracaktır.');
+            $processedDownloads[] = $download;
         }
 
-        // 3. New link submission -> Create download record for this user & dispatch Job
-        $download = DebridDownload::create([
-            'uuid' => (string) Str::uuid(),
-            'user_id' => $userId,
-            'original_link' => $originalLink,
-            'link_hash' => $linkHash,
-            'status' => 'pending',
-            'user_ip' => $request->ip(),
-            'use_remote' => $request->has('use_remote') ? $request->boolean('use_remote') : config('services.realdebrid.use_remote', true),
-        ]);
-
-        $queueDriver = config('queue.default');
-
-        if ($queueDriver === 'sync') {
-            ProcessDebridDownloadJob::dispatchAfterResponse($download);
-        } else {
-            ProcessDebridDownloadJob::dispatch($download);
-        }
+        $count = count($processedDownloads);
+        $message = $count > 1
+            ? "{$count} adet indirme bağlantısı başarıyla eklendi ve işleme alındı!"
+            : 'İndirme talebi alındı. Real-Debrid üzerinden sunucuya aktarılıyor.';
 
         if ($request->wantsJson()) {
             return response()->json([
                 'success' => true,
-                'message' => 'İndirme talebi alındı. Real-Debrid üzerinden sunucuya aktarılıyor.',
-                'cached' => false,
-                'data' => $download,
+                'message' => $message,
+                'count' => $count,
+                'data' => $count === 1 ? $processedDownloads[0] : $processedDownloads,
             ], 201);
         }
 
-        return redirect()->route('dashboard')->with('success', '🚀 İndirme başlatıldı! Real-Debrid hesabınız riske atılmadan 1 defa indirilecek.');
+        return redirect()->route('dashboard')->with('success', $message);
+
+        return redirect()->route('dashboard')->with('success', 'İndirme başlatıldı! Real-Debrid hesabınız riske atılmadan 1 defa indirilecek.');
     }
 
     /**
@@ -422,6 +500,82 @@ class DebridDownloadController extends Controller
                 fclose($stream);
             }
         }, $statusCode, $headers);
+    }
+
+    /**
+     * Bulk delete cached download files / cancel ongoing downloads
+     */
+    public function destroyBulk(Request $request)
+    {
+        /** @var User|null $user */
+        $user = auth()->user();
+        $isSuperUser = $user?->isSuperUser() ?? false;
+
+        $request->validate([
+            'uuids' => 'required|array',
+            'uuids.*' => 'string',
+        ]);
+
+        $uuids = $request->input('uuids', []);
+
+        $query = DebridDownload::whereIn('uuid', $uuids);
+        if (! $isSuperUser && $user) {
+            $query->where('user_id', $user->id);
+        }
+        $downloads = $query->get();
+
+        $deletedCount = 0;
+
+        foreach ($downloads as $download) {
+            $storagePath = $download->storage_path;
+            $linkHash = $download->link_hash;
+            $downloadUuid = $download->uuid;
+
+            // 1. Mark as cancelled before deletion so active loop notices
+            $download->update(['status' => 'cancelled']);
+            $download->delete();
+            $deletedCount++;
+
+            // 2. Only delete physical file and cancel job if NO OTHER active/completed user record uses this link_hash
+            $otherActiveCount = DebridDownload::where('link_hash', $linkHash)
+                ->where('status', '!=', 'cancelled')
+                ->count();
+
+            if ($otherActiveCount === 0) {
+                Cache::put("cancel_download_{$downloadUuid}", true, now()->addMinutes(10));
+
+                if (empty($storagePath)) {
+                    $storagePath = DebridDownload::where('link_hash', $linkHash)
+                        ->whereNotNull('storage_path')
+                        ->value('storage_path');
+                }
+
+                if (! empty($storagePath)) {
+                    $fullPath = Storage::disk('public')->path($storagePath);
+                    if (file_exists($fullPath)) {
+                        @unlink($fullPath);
+                    }
+                    $dir = dirname($storagePath);
+                    if ($dir && $dir !== '.' && Storage::disk('public')->exists($dir)) {
+                        Storage::disk('public')->deleteDirectory($dir);
+                    }
+                }
+
+                DebridDownload::where('link_hash', $linkHash)->delete();
+            }
+        }
+
+        $msg = "{$deletedCount} adet indirme kaydı silindi.";
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => $msg,
+                'deleted_count' => $deletedCount,
+            ]);
+        }
+
+        return redirect()->route('dashboard')->with('success', $msg);
     }
 
     /**

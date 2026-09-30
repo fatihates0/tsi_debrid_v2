@@ -122,7 +122,6 @@ class DebridApiController extends Controller
                 'mime_type' => $activeGlobal->mime_type,
                 'storage_path' => $activeGlobal->storage_path,
                 'user_ip' => $request->ip(),
-                'use_remote' => $activeGlobal->use_remote,
             ]);
 
             if ($activeGlobal->status === 'completed' && $activeGlobal->is_cached) {
@@ -150,9 +149,6 @@ class DebridApiController extends Controller
             'link_hash' => $linkHash,
             'status' => 'pending',
             'user_ip' => $request->ip(),
-            'use_remote' => ($request->has('remote') || $request->has('use_remote'))
-                ? ($request->boolean('remote') || $request->boolean('use_remote'))
-                : config('services.realdebrid.use_remote', true),
         ]);
 
         if (config('queue.default') === 'sync') {
@@ -368,7 +364,6 @@ class DebridApiController extends Controller
                 'mime_type' => $activeGlobal->mime_type,
                 'storage_path' => $activeGlobal->storage_path,
                 'user_ip' => $request->ip(),
-                'use_remote' => $activeGlobal->use_remote,
             ]);
         } else {
             $existing = $userExisting ?: $activeGlobal;
@@ -393,12 +388,11 @@ class DebridApiController extends Controller
                 'link_hash' => $linkHash,
                 'status' => 'pending',
                 'user_ip' => $request->ip(),
-                'use_remote' => true,
             ]);
         }
 
         if (empty($existing->debrid_link)) {
-            $unrestrictResult = $this->rdService->unrestrictLink($originalLink, null, true);
+            $unrestrictResult = $this->rdService->unrestrictLink($originalLink);
 
             if (! $unrestrictResult['success']) {
                 $existing->update([

@@ -33,6 +33,50 @@ class RealDebridService
     }
 
     /**
+     * Get list of allowed host domains configured in config/env (DEBRID_ALLOWED_HOSTS).
+     */
+    public static function getAllowedHosts(): array
+    {
+        $raw = config('services.realdebrid.allowed_hosts', env('DEBRID_ALLOWED_HOSTS', ''));
+        if (empty($raw) || trim($raw) === '*') {
+            return [];
+        }
+
+        $hosts = array_map('trim', explode(',', strtolower($raw)));
+
+        return array_values(array_filter($hosts, fn ($h) => ! empty($h)));
+    }
+
+    /**
+     * Check if a submitted URL's domain/host is allowed.
+     */
+    public static function isHostAllowed(string $url): bool
+    {
+        $allowedHosts = self::getAllowedHosts();
+        if (empty($allowedHosts)) {
+            return true;
+        }
+
+        $parsedHost = strtolower(parse_url($url, PHP_URL_HOST) ?? '');
+        if (empty($parsedHost)) {
+            return false;
+        }
+
+        foreach ($allowedHosts as $allowed) {
+            $allowed = strtolower(trim($allowed));
+            if (empty($allowed)) {
+                continue;
+            }
+
+            if ($parsedHost === $allowed || str_ends_with($parsedHost, '.'.$allowed)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Normalize proxy URL format (supports ip:port, ip:port:user:pass, http://, socks5://, socks5h://)
      */
     public static function normalizeProxyUrl(string $proxy): string
@@ -65,24 +109,13 @@ class RealDebridService
     }
 
     /**
-     * Get list of configured proxies.
-     * Combines .env proxy (if set) and public/proxies.txt entries.
+     * Get list of configured proxies exclusively from public/proxies.txt.
      */
     public static function getProxyList(): array
     {
         $proxies = [];
-
-        // 1. .env proxy (if set)
-        $envProxy = config('services.realdebrid.proxy');
-        if (! empty($envProxy)) {
-            $formatted = self::normalizeProxyUrl($envProxy);
-            if (! empty($formatted)) {
-                $proxies[] = $formatted;
-            }
-        }
-
-        // 2. public/proxies.txt file
         $txtPath = public_path('proxies.txt');
+
         if (file_exists($txtPath)) {
             $lines = file($txtPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
             foreach ($lines as $line) {
@@ -291,10 +324,8 @@ class RealDebridService
 
     /**
      * Unrestrict a link (Mega.nz, Rapidgator, etc.)
-     *
-     * @param  bool  $remote  Bypasses dedicated server / VPS hoster restrictions (remote=1)
      */
-    public function unrestrictLink(string $link, ?string $password = null, bool $remote = true): array
+    public function unrestrictLink(string $link, ?string $password = null): array
     {
         if (! $this->hasToken()) {
             return [
@@ -318,7 +349,7 @@ class RealDebridService
 
                 $payload = [
                     'link' => trim($link),
-                    'remote' => $remote ? 1 : 0,
+                    'remote' => 0,
                 ];
 
                 if ($password) {
@@ -353,15 +384,6 @@ class RealDebridService
 
                 $errorMsg = $response->json('error') ?? $response->body();
                 $lastError = 'Real-Debrid Unrestrict Hatası ('.$response->status().'): '.$errorMsg;
-
-                // Automatic fallback if Remote Traffic (remote=1) quota is exhausted
-                if ($remote && str_contains(strtolower((string) $errorMsg), 'traffic_exhausted')) {
-                    if ($proxy) {
-                        Cache::put('last_working_rd_proxy', $proxy, now()->addHours(2));
-                    }
-
-                    return $this->unrestrictLink($link, $password, false);
-                }
 
                 $isIpBlocked = str_contains(strtolower((string) $errorMsg), 'ip_not_allowed');
                 if ($isIpBlocked) {

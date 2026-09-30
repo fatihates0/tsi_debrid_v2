@@ -56,9 +56,7 @@ class ProcessDebridDownloadJob implements ShouldQueue
             // Step 1: Unrestrict link if not already done
             if (empty($download->debrid_link)) {
                 DebridDownload::where('link_hash', $linkHash)->where('status', '!=', 'cancelled')->update(['status' => 'unrestricting']);
-                $useRemote = $download->use_remote ?? config('services.realdebrid.use_remote', true);
-
-                $unrestrictResult = $rdService->unrestrictLink($download->original_link, null, $useRemote);
+                $unrestrictResult = $rdService->unrestrictLink($download->original_link);
 
                 if (! $unrestrictResult['success']) {
                     $errMsg = $unrestrictResult['message'] ?? 'Link dönüştürülemedi.';
@@ -223,11 +221,7 @@ class ProcessDebridDownloadJob implements ShouldQueue
                             $statusCode = $e->getResponse()?->getStatusCode();
                             if (in_array($statusCode, [401, 403, 404, 410, 416, 500, 502, 503, 504])) {
                                 try {
-                                    $useRemote = $download->use_remote ?? config('services.realdebrid.use_remote', true);
-                                    $refreshResult = $rdService->unrestrictLink($download->original_link, null, $useRemote);
-                                    if (! $refreshResult['success']) {
-                                        $refreshResult = $rdService->unrestrictLink($download->original_link, null, false);
-                                    }
+                                    $refreshResult = $rdService->unrestrictLink($download->original_link);
                                     if ($refreshResult['success'] && ! empty($refreshResult['data']['download_link'])) {
                                         $debridUrl = $refreshResult['data']['download_link'];
                                         DebridDownload::where('link_hash', $linkHash)->where('status', '!=', 'cancelled')->update(['debrid_link' => $debridUrl]);
@@ -247,11 +241,7 @@ class ProcessDebridDownloadJob implements ShouldQueue
                 // If attempt 1 failed, re-unrestrict link once with fresh candidates before attempt 2
                 if (! $downloadSuccess && $attempt < $maxAttempts) {
                     try {
-                        $useRemote = $download->use_remote ?? config('services.realdebrid.use_remote', true);
-                        $refreshResult = $rdService->unrestrictLink($download->original_link, null, $useRemote);
-                        if (! $refreshResult['success']) {
-                            $refreshResult = $rdService->unrestrictLink($download->original_link, null, false);
-                        }
+                        $refreshResult = $rdService->unrestrictLink($download->original_link);
                         if ($refreshResult['success'] && ! empty($refreshResult['data']['download_link'])) {
                             $debridUrl = $refreshResult['data']['download_link'];
                             DebridDownload::where('link_hash', $linkHash)->where('status', '!=', 'cancelled')->update(['debrid_link' => $debridUrl]);

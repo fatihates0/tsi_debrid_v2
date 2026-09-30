@@ -28,7 +28,7 @@ class DebridProxyTest extends TestCase
     {
         $response = $this->get('/');
         $response->assertStatus(200);
-        $response->assertSee('DEBRID');
+        $response->assertInertia(fn ($page) => $page->component('Dashboard'));
     }
 
     public function test_it_creates_a_new_download_job_on_link_submission()
@@ -50,6 +50,17 @@ class DebridProxyTest extends TestCase
         ]);
 
         Queue::assertPushed(ProcessDebridDownloadJob::class);
+    }
+
+    public function test_it_rejects_links_not_in_allowed_hosts_config()
+    {
+        config(['services.realdebrid.allowed_hosts' => 'mega.nz,turbobit.net']);
+
+        // Disallowed host link -> Rejection error
+        $disallowedResponse = $this->post('/downloads', [
+            'link' => 'https://unallowedhost.com/file/test1234',
+        ]);
+        $disallowedResponse->assertSessionHasErrors('link');
     }
 
     public function test_it_prevents_duplicate_real_debrid_calls_for_cached_files()
@@ -324,5 +335,36 @@ class DebridProxyTest extends TestCase
 
         // Physical file preserved because User 2 still has it!
         Storage::disk('public')->assertExists($storagePath);
+    }
+
+    public function test_it_can_bulk_delete_downloads()
+    {
+        $user = auth()->user();
+
+        $dl1 = DebridDownload::create([
+            'uuid' => 'bulk-uuid-1',
+            'user_id' => $user->id,
+            'original_link' => 'https://mega.nz/file/bulk1',
+            'link_hash' => md5('https://mega.nz/file/bulk1'),
+            'status' => 'pending',
+        ]);
+
+        $dl2 = DebridDownload::create([
+            'uuid' => 'bulk-uuid-2',
+            'user_id' => $user->id,
+            'original_link' => 'https://mega.nz/file/bulk2',
+            'link_hash' => md5('https://mega.nz/file/bulk2'),
+            'status' => 'pending',
+        ]);
+
+        $response = $this->deleteJson('/downloads/bulk-delete', [
+            'uuids' => ['bulk-uuid-1', 'bulk-uuid-2'],
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson(['success' => true, 'deleted_count' => 2]);
+
+        $this->assertDatabaseMissing('debrid_downloads', ['uuid' => 'bulk-uuid-1']);
+        $this->assertDatabaseMissing('debrid_downloads', ['uuid' => 'bulk-uuid-2']);
     }
 }

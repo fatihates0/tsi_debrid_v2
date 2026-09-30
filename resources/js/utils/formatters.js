@@ -40,7 +40,7 @@ export const getHosterName = (url) => {
     if (lower.includes('nitroflare.com')) return 'Nitroflare';
     if (lower.includes('filefactory.com')) return 'FileFactory';
     if (lower.includes('mediafire.com')) return 'Mediafire';
-    
+
     try {
         const domain = new URL(url).hostname.replace('www.', '');
         return domain;
@@ -53,14 +53,14 @@ export const getStatusConfig = (status) => {
     switch (status) {
         case 'completed':
             return {
-                label: 'Önbellekte Hazır',
+                label: 'Hazır',
                 badgeClass: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
                 dotClass: 'bg-emerald-400',
                 icon: 'CheckCircle2',
             };
         case 'downloading':
             return {
-                label: 'İndiriliyor',
+                label: 'Hazırlanıyor',
                 badgeClass: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30 animate-pulse',
                 dotClass: 'bg-indigo-400',
                 icon: 'RefreshCw',

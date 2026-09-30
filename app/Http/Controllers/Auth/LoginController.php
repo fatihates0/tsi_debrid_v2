@@ -8,7 +8,8 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
-use Illuminate\View\View;
+use Inertia\Inertia;
+use Inertia\Response as InertiaResponse;
 
 class LoginController extends Controller
 {
@@ -17,9 +18,9 @@ class LoginController extends Controller
     /**
      * Display the XenForo login view.
      */
-    public function showLoginForm(): View
+    public function showLoginForm(): InertiaResponse
     {
-        return view('auth.login');
+        return Inertia::render('Auth/Login');
     }
 
     /**

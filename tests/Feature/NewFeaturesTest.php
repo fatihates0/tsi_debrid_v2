@@ -92,8 +92,10 @@ class NewFeaturesTest extends TestCase
 
         $dashboardResponse = $this->get('/');
         $dashboardResponse->assertStatus(200);
-        $dashboardResponse->assertSee('SUPERUSER');
-        $dashboardResponse->assertSee('Superuser Yönetim Paneli');
+        $dashboardResponse->assertInertia(fn ($page) => $page
+            ->component('Dashboard')
+            ->where('isSuperUser', true)
+        );
     }
 
     public function test_superuser_can_delete_user_and_associated_downloads(): void

@@ -38,8 +38,7 @@ return [
     'realdebrid' => [
         'api_token' => env('REAL_DEBRID_API_TOKEN', ''),
         'base_url' => env('REAL_DEBRID_BASE_URL', 'https://api.real-debrid.com/rest/1.0/'),
-        'use_remote' => env('REAL_DEBRID_REMOTE_TRAFFIC', true),
-        'proxy' => env('REAL_DEBRID_PROXY', null),
+        'allowed_hosts' => env('DEBRID_ALLOWED_HOSTS', ''),
     ],
 
     'xenforo' => [

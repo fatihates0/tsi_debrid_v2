@@ -16,6 +16,7 @@ export default function Dashboard({
     isSuperUser,
     userStats: initialUserStats,
     rdInfo: initialRdInfo,
+    allowedHosts = [],
 }) {
     const { auth, flash } = usePage().props;
 
@@ -33,7 +34,6 @@ export default function Dashboard({
 
     const { data, setData, post, processing, reset } = useForm({
         link: '',
-        use_remote: true,
     });
 
     const addToast = useCallback((message, type = 'info') => {
@@ -119,6 +119,21 @@ export default function Dashboard({
         }
     };
 
+    const handleBulkDeleteDownload = async (uuids) => {
+        if (!uuids || uuids.length === 0) return;
+        try {
+            const res = await axios.delete('/downloads/bulk-delete', {
+                data: { uuids },
+            });
+            if (res.data?.success) {
+                addToast(res.data.message || `${uuids.length} adet indirme kaydı silindi.`, 'success');
+                fetchAjaxUpdates();
+            }
+        } catch (err) {
+            addToast(err.response?.data?.message || 'Toplu silme işlemi başarısız oldu.', 'error');
+        }
+    };
+
     const handleRetryDownload = async (uuid) => {
         try {
             const res = await axios.post(`/downloads/${uuid}/retry`);
@@ -187,14 +202,13 @@ export default function Dashboard({
             {/* Main Content Area */}
             <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full space-y-8 relative z-10">
                 {/* System Overview Stats Grid */}
-                <StatsGrid stats={stats} />
+                <StatsGrid stats={stats} isSuperUser={isSuperUser} />
 
                 {/* Link Submission Card */}
                 <LinkSubmissionForm
                     link={data.link}
-                    useRemote={data.use_remote}
+                    allowedHosts={allowedHosts}
                     onChangeLink={(val) => setData('link', val)}
-                    onChangeRemote={(val) => setData('use_remote', val)}
                     onSubmit={handleSubmitLink}
                     processing={processing}
                 />
@@ -210,6 +224,7 @@ export default function Dashboard({
                     onCopyLink={copyToClipboard}
                     onRetry={handleRetryDownload}
                     onDelete={handleDeleteDownload}
+                    onBulkDelete={handleBulkDeleteDownload}
                 />
             </main>
 
