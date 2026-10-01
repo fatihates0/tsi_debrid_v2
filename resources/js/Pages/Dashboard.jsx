@@ -16,6 +16,7 @@ export default function Dashboard({
     stats: initialStats,
     isSuperUser,
     userStats: initialUserStats,
+    systemLimits: initialSystemLimits,
     rdInfo: initialRdInfo,
     allowedHosts = [],
 }) {
@@ -24,6 +25,9 @@ export default function Dashboard({
     const [downloads, setDownloads] = useState(initialDownloads?.data || []);
     const [stats, setStats] = useState(initialStats || {});
     const [userStats, setUserStats] = useState(initialUserStats || []);
+    const [systemLimits, setSystemLimits] = useState(
+        initialSystemLimits || { max_concurrent_links: null, max_filesize_mb: null }
+    );
     const [rdInfo, setRdInfo] = useState(initialRdInfo || { loading: false });
 
     const [searchTerm, setSearchTerm] = useState('');
@@ -164,6 +168,19 @@ export default function Dashboard({
         }
     };
 
+    const handleUpdateSettings = async (newLimits) => {
+        try {
+            const res = await axios.post('/settings', newLimits);
+            if (res.data?.success) {
+                setSystemLimits(res.data.systemLimits || newLimits);
+                addToast('Sistem limitleme ayarları güncellendi.', 'success');
+            }
+        } catch (err) {
+            addToast(err.response?.data?.message || 'Ayarlar güncellenirken bir hata oluştu.', 'error');
+            throw err;
+        }
+    };
+
     const copyToClipboard = (text, label = 'Bağlantı') => {
         navigator.clipboard.writeText(text);
         addToast(`${label} panoya kopyalandı! IDM ile doğrudan kullanabilirsiniz.`, 'success');
@@ -239,8 +256,10 @@ export default function Dashboard({
             {showSuperUserModal && (
                 <SuperUserModal
                     userStats={userStats}
+                    systemLimits={systemLimits}
                     onClose={() => setShowSuperUserModal(false)}
                     onDeleteUser={handleDeleteUser}
+                    onUpdateSettings={handleUpdateSettings}
                 />
             )}
 

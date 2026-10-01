@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Jobs\ProcessDebridDownloadJob;
 use App\Models\DebridDownload;
+use App\Models\Setting;
 use App\Models\User;
 use App\Services\RealDebridService;
 use App\Services\XenForoAuthService;
@@ -122,6 +123,7 @@ class DebridDownloadController extends Controller
             'stats' => $stats,
             'isSuperUser' => $isSuperUser,
             'userStats' => $userStats,
+            'systemLimits' => Setting::getLimits(),
             'rdInfo' => $this->rdService->getUserInfo(),
             'allowedHosts' => RealDebridService::getAllowedHosts(),
         ]);
@@ -210,6 +212,20 @@ class DebridDownloadController extends Controller
         $userId = $user?->id;
         $queueDriver = config('queue.default');
 
+        // Check superadmin system limit: Maximum concurrent links allowed
+        $concurrentLimitError = Setting::checkConcurrentLimit($user, count($allowedUrls));
+        if ($concurrentLimitError) {
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $concurrentLimitError,
+                    'errors' => ['link' => [$concurrentLimitError]],
+                ], 422);
+            }
+
+            return redirect()->back()->withErrors(['link' => $concurrentLimitError]);
+        }
+
         // Single link special response compatibility
         if (count($allowedUrls) === 1) {
             $originalLink = $allowedUrls[0];
@@ -240,6 +256,22 @@ class DebridDownloadController extends Controller
                 ->first();
 
             if ($activeGlobal) {
+                // Check filesize limit if known
+                if ($activeGlobal->filesize > 0) {
+                    $filesizeError = Setting::checkFilesizeLimit($user, (int) $activeGlobal->filesize);
+                    if ($filesizeError) {
+                        if ($request->wantsJson()) {
+                            return response()->json([
+                                'success' => false,
+                                'message' => $filesizeError,
+                                'errors' => ['link' => [$filesizeError]],
+                            ], 422);
+                        }
+
+                        return redirect()->back()->withErrors(['link' => $filesizeError]);
+                    }
+                }
+
                 $download = DebridDownload::create([
                     'uuid' => (string) Str::uuid(),
                     'user_id' => $userId,
@@ -875,5 +907,42 @@ class DebridDownloadController extends Controller
             'freed_bytes' => $freedBytes,
             'freed_formatted' => formatBytes($freedBytes),
         ]);
+    }
+
+    /**
+     * Update SuperUser system limits and settings
+     */
+    public function updateSettings(Request $request)
+    {
+        /** @var User|null $user */
+        $user = auth()->user();
+        if (! $user?->isSuperUser()) {
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Bu işlemi gerçekleştirmek için SuperUser yetkiniz olmalıdır.',
+                ], 403);
+            }
+
+            return redirect()->back()->withErrors(['message' => 'Bu işlemi gerçekleştirmek için SuperUser yetkiniz olmalıdır.']);
+        }
+
+        $validated = $request->validate([
+            'max_concurrent_links' => 'nullable|integer|min:0',
+            'max_filesize_mb' => 'nullable|integer|min:0',
+        ]);
+
+        Setting::set('max_concurrent_links', $validated['max_concurrent_links'] !== null ? (string) $validated['max_concurrent_links'] : '');
+        Setting::set('max_filesize_mb', $validated['max_filesize_mb'] !== null ? (string) $validated['max_filesize_mb'] : '');
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Sistem limitleme ayarları başarıyla güncellendi.',
+                'systemLimits' => Setting::getLimits(),
+            ]);
+        }
+
+        return redirect()->back()->with('success', 'Sistem limitleme ayarları başarıyla güncellendi.');
     }
 }

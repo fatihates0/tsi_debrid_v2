@@ -3,6 +3,8 @@
 namespace App\Jobs;
 
 use App\Models\DebridDownload;
+use App\Models\Setting;
+use App\Models\User;
 use App\Services\RealDebridService;
 use Exception;
 use GuzzleHttp\Client as GuzzleClient;
@@ -107,8 +109,19 @@ class ProcessDebridDownloadJob implements ShouldQueue
             }
             $totalSize = (int) ($download->filesize ?? 0);
 
-            // Ensure sufficient free disk space exists before starting download
+            // Check system max filesize limit for non-superusers
             if ($totalSize > 0) {
+                $user = User::find($download->user_id);
+                $filesizeError = Setting::checkFilesizeLimit($user, $totalSize);
+                if ($filesizeError) {
+                    DebridDownload::where('link_hash', $linkHash)->where('status', '!=', 'cancelled')->update([
+                        'status' => 'failed',
+                        'error_message' => $filesizeError,
+                    ]);
+
+                    return;
+                }
+
                 DebridDownload::ensureFreeDiskSpace($totalSize);
             }
 

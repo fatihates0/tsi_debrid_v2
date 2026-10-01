@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Jobs\ProcessDebridDownloadJob;
 use App\Models\DebridDownload;
+use App\Models\Setting;
 use App\Services\RealDebridService;
 use App\Services\XenForoAuthService;
 use Illuminate\Http\JsonResponse;
@@ -68,6 +69,15 @@ class DebridApiController extends Controller
             }
         }
 
+        // Check concurrent link limit
+        $concurrentError = Setting::checkConcurrentLimit($user, 1);
+        if ($concurrentError) {
+            return response()->json([
+                'status' => 'error',
+                'message' => $concurrentError,
+            ], 422);
+        }
+
         $request->validate([
             'link' => 'required|url',
         ]);
@@ -108,6 +118,16 @@ class DebridApiController extends Controller
             ->first();
 
         if ($activeGlobal) {
+            if ($activeGlobal->filesize > 0) {
+                $filesizeError = Setting::checkFilesizeLimit($user, (int) $activeGlobal->filesize);
+                if ($filesizeError) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => $filesizeError,
+                    ], 422);
+                }
+            }
+
             $download = DebridDownload::create([
                 'uuid' => (string) Str::uuid(),
                 'user_id' => $userId,
@@ -161,6 +181,16 @@ class DebridApiController extends Controller
                 $downloadData['filename'] = $data['filename'] ?? 'file_'.$downloadData['uuid'];
                 $downloadData['filesize'] = $data['filesize'] ?? 0;
                 $downloadData['mime_type'] = $data['mime_type'] ?? null;
+
+                if (! empty($downloadData['filesize'])) {
+                    $filesizeError = Setting::checkFilesizeLimit($user, (int) $downloadData['filesize']);
+                    if ($filesizeError) {
+                        return response()->json([
+                            'status' => 'error',
+                            'message' => $filesizeError,
+                        ], 422);
+                    }
+                }
             }
         } catch (\Throwable $e) {
             // Fall back to job

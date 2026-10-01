@@ -25,6 +25,7 @@ Route::middleware('auth')->group(function () {
     Route::delete('/downloads/{uuid}', [DebridDownloadController::class, 'destroy'])->name('downloads.destroy');
     Route::delete('/users/{id}', [DebridDownloadController::class, 'deleteUser'])->name('users.destroy');
     Route::get('/rd-status', [DebridDownloadController::class, 'rdStatus'])->name('rd.status');
+    Route::post('/settings', [DebridDownloadController::class, 'updateSettings'])->name('settings.update');
 });
 
 // Direct Download & Stream Endpoints (accessible for IDM / Download managers)
