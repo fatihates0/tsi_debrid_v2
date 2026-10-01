@@ -46,9 +46,6 @@ export default function Dashboard({
     const addToast = useCallback((message, type = 'info') => {
         const id = Date.now() + Math.random();
         setToasts((prev) => [...prev, { id, message, type }]);
-        setTimeout(() => {
-            setToasts((prev) => prev.filter((t) => t.id !== id));
-        }, 4000);
     }, []);
 
     const removeToast = useCallback((id) => {
