@@ -142,6 +142,35 @@ class SystemLimitsTest extends TestCase
         $response2->assertSuccessful();
     }
 
+    public function test_multilink_submission_takes_up_to_limit_and_ignores_rest(): void
+    {
+        Setting::set('max_concurrent_links', 2);
+
+        $user = User::factory()->create();
+
+        // Submit 4 links at once when limit is 2
+        $links = implode("\n", [
+            'https://mega.nz/file/11111111#aaaaaaa',
+            'https://mega.nz/file/22222222#bbbbbbb',
+            'https://mega.nz/file/33333333#ccccccc',
+            'https://mega.nz/file/44444444#ddddddd',
+        ]);
+
+        $response = $this->actingAs($user)->postJson('/downloads', [
+            'link' => $links,
+        ]);
+
+        $response->assertSuccessful()
+            ->assertJson([
+                'success' => true,
+                'count' => 2,
+                'ignored_count' => 2,
+            ]);
+
+        // Verify only 2 links were added to DB for this user
+        $this->assertEquals(2, DebridDownload::where('user_id', $user->id)->count());
+    }
+
     public function test_superadmin_is_exempt_from_concurrent_limit(): void
     {
         config(['services.superuser.username' => 'superadmin']);

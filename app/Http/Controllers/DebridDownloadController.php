@@ -212,38 +212,56 @@ class DebridDownloadController extends Controller
         $userId = $user?->id;
         $queueDriver = config('queue.default');
 
-        // Filter out URLs that the user ALREADY has in their download list
+        // Separate URLs that the user ALREADY has in their download list from BRAND NEW URLs
+        $alreadyExistingUrls = [];
         $newUrls = [];
+
         foreach ($allowedUrls as $url) {
             $linkHash = md5($url);
             $userExisting = DebridDownload::when($userId, fn ($q) => $q->where('user_id', $userId))
                 ->where('link_hash', $linkHash)
                 ->first();
 
-            if (! $userExisting) {
+            if ($userExisting) {
+                $alreadyExistingUrls[] = $url;
+            } else {
                 $newUrls[] = $url;
             }
         }
 
-        // Check superadmin system limit: Maximum download list capacity allowed
-        if (count($newUrls) > 0 || empty($allowedUrls)) {
-            $concurrentLimitError = Setting::checkConcurrentLimit($user, max(1, count($newUrls)));
-            if ($concurrentLimitError) {
-                if ($request->wantsJson()) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => $concurrentLimitError,
-                        'errors' => ['link' => [$concurrentLimitError]],
-                    ], 422);
-                }
+        $maxLimit = Setting::getMaxLimit($user);
+        $remainingQuota = Setting::getRemainingQuota($user);
 
-                return redirect()->back()->withErrors(['link' => $concurrentLimitError]);
+        // Case 1: Download list capacity is completely full or 0, AND user is adding new links (and no existing link re-submitted)
+        if ($maxLimit !== null && $remainingQuota === 0 && count($newUrls) > 0 && count($alreadyExistingUrls) === 0) {
+            $errorMsg = $maxLimit === 0
+                ? 'Sistem yöneticisi tarafından yeni bağlantı ekleme kapatılmıştır (Maksimum link sınırı: 0).'
+                : "İndirme listenizde maksimum {$maxLimit} adet link barındırabilirsiniz (Şu an listenizde {$maxLimit} adet link bulunuyor). Yeni link ekleyebilmek için önce listenizden link silmelisiniz.";
+
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $errorMsg,
+                    'errors' => ['link' => [$errorMsg]],
+                ], 422);
             }
+
+            return redirect()->back()->withErrors(['link' => $errorMsg]);
+        }
+
+        // Case 2: Multi-link partial slicing when newUrls > remainingQuota
+        $ignoredCount = 0;
+        $urlsToProcess = $allowedUrls;
+
+        if ($maxLimit !== null && $remainingQuota !== null && count($newUrls) > $remainingQuota) {
+            $acceptedNewUrls = array_slice($newUrls, 0, $remainingQuota);
+            $ignoredCount = count($newUrls) - count($acceptedNewUrls);
+            $urlsToProcess = array_merge($alreadyExistingUrls, $acceptedNewUrls);
         }
 
         // Single link special response compatibility
-        if (count($allowedUrls) === 1) {
-            $originalLink = $allowedUrls[0];
+        if (count($urlsToProcess) === 1 && count($allowedUrls) === 1) {
+            $originalLink = $urlsToProcess[0];
             $linkHash = md5($originalLink);
 
             // 1. Check if current user ALREADY has this link
@@ -318,7 +336,7 @@ class DebridDownloadController extends Controller
 
         $processedDownloads = [];
 
-        foreach ($allowedUrls as $originalLink) {
+        foreach ($urlsToProcess as $originalLink) {
             $linkHash = md5($originalLink);
 
             // Check if current user ALREADY has this link
@@ -395,20 +413,27 @@ class DebridDownloadController extends Controller
         }
 
         $count = count($processedDownloads);
-        $message = $count > 1
-            ? "{$count} adet indirme bağlantısı başarıyla eklendi ve işleme alındı!"
-            : 'İndirme talebi alındı. Real-Debrid üzerinden sunucuya aktarılıyor.';
+        if ($ignoredCount > 0) {
+            $message = "İndirme listesi kotanız ({$maxLimit} adet) nedeniyle ilk {$count} bağlantı eklendi. Kalan {$ignoredCount} bağlantı kota dolduğu için işlenmedi.";
+        } else {
+            $message = $count > 1
+                ? "{$count} adet indirme bağlantısı başarıyla eklendi ve işleme alındı!"
+                : 'İndirme talebi alındı. Real-Debrid üzerinden sunucuya aktarılıyor.';
+        }
 
         if ($request->wantsJson()) {
             return response()->json([
                 'success' => true,
                 'message' => $message,
                 'count' => $count,
+                'ignored_count' => $ignoredCount,
                 'data' => $count === 1 ? $processedDownloads[0] : $processedDownloads,
             ], 201);
         }
 
-        return redirect()->route('dashboard')->with('success', $message);
+        $flashKey = $ignoredCount > 0 ? 'warning' : 'success';
+
+        return redirect()->route('dashboard')->with($flashKey, $message);
 
         return redirect()->route('dashboard')->with('success', 'İndirme başlatıldı! Real-Debrid hesabınız riske atılmadan 1 defa indirilecek.');
     }

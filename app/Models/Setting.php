@@ -52,10 +52,10 @@ class Setting extends Model
     }
 
     /**
-     * Check if the user is allowed to add new download links to their download list.
-     * Returns null if allowed, or error message string if blocked.
+     * Get configured max link capacity for a user.
+     * Returns null if unlimited (e.g. superuser or setting not configured).
      */
-    public static function checkConcurrentLimit(?User $user, int $newLinkCount = 1): ?string
+    public static function getMaxLimit(?User $user): ?int
     {
         if ($user?->isSuperUser()) {
             return null;
@@ -66,7 +66,43 @@ class Setting extends Model
             return null;
         }
 
-        $max = (int) $maxConcurrent;
+        return (int) $maxConcurrent;
+    }
+
+    /**
+     * Get remaining available link slots in download list for a user.
+     * Returns null if unlimited.
+     */
+    public static function getRemainingQuota(?User $user): ?int
+    {
+        $max = static::getMaxLimit($user);
+        if ($max === null) {
+            return null;
+        }
+
+        if ($max === 0) {
+            return 0;
+        }
+
+        if (! $user) {
+            return 0;
+        }
+
+        $currentCount = DebridDownload::where('user_id', $user->id)->count();
+
+        return max(0, $max - $currentCount);
+    }
+
+    /**
+     * Check if the user is allowed to add new download links to their download list.
+     * Returns null if allowed, or error message string if blocked.
+     */
+    public static function checkConcurrentLimit(?User $user, int $newLinkCount = 1): ?string
+    {
+        $max = static::getMaxLimit($user);
+        if ($max === null) {
+            return null;
+        }
 
         if ($max === 0) {
             return 'Sistem yöneticisi tarafından yeni bağlantı ekleme kapatılmıştır (Maksimum link sınırı: 0).';
