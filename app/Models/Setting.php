@@ -52,7 +52,7 @@ class Setting extends Model
     }
 
     /**
-     * Check if the user is allowed to add new concurrent download links.
+     * Check if the user is allowed to add new download links to their download list.
      * Returns null if allowed, or error message string if blocked.
      */
     public static function checkConcurrentLimit(?User $user, int $newLinkCount = 1): ?string
@@ -69,16 +69,14 @@ class Setting extends Model
         $max = (int) $maxConcurrent;
 
         if ($max === 0) {
-            return 'Sistem yöneticisi tarafından yeni bağlantı önbellekleme kapatılmıştır (Maksimum link sınırı: 0).';
+            return 'Sistem yöneticisi tarafından yeni bağlantı ekleme kapatılmıştır (Maksimum link sınırı: 0).';
         }
 
         if ($user && $max > 0) {
-            $activeCount = DebridDownload::where('user_id', $user->id)
-                ->whereIn('status', ['pending', 'unrestricting', 'downloading'])
-                ->count();
+            $currentCount = DebridDownload::where('user_id', $user->id)->count();
 
-            if (($activeCount + $newLinkCount) > $max) {
-                return "Aynı anda en fazla {$max} adet aktif önbellekleme yapabilirsiniz (Şu an {$activeCount} adet aktif işleminiz var).";
+            if (($currentCount + $newLinkCount) > $max) {
+                return "İndirme listenizde maksimum {$max} adet link barındırabilirsiniz (Şu an listenizde {$currentCount} adet link bulunuyor). Yeni link ekleyebilmek için önce listenizden link silmelisiniz.";
             }
         }
 

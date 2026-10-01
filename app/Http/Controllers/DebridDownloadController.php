@@ -212,18 +212,33 @@ class DebridDownloadController extends Controller
         $userId = $user?->id;
         $queueDriver = config('queue.default');
 
-        // Check superadmin system limit: Maximum concurrent links allowed
-        $concurrentLimitError = Setting::checkConcurrentLimit($user, count($allowedUrls));
-        if ($concurrentLimitError) {
-            if ($request->wantsJson()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => $concurrentLimitError,
-                    'errors' => ['link' => [$concurrentLimitError]],
-                ], 422);
-            }
+        // Filter out URLs that the user ALREADY has in their download list
+        $newUrls = [];
+        foreach ($allowedUrls as $url) {
+            $linkHash = md5($url);
+            $userExisting = DebridDownload::when($userId, fn ($q) => $q->where('user_id', $userId))
+                ->where('link_hash', $linkHash)
+                ->first();
 
-            return redirect()->back()->withErrors(['link' => $concurrentLimitError]);
+            if (! $userExisting) {
+                $newUrls[] = $url;
+            }
+        }
+
+        // Check superadmin system limit: Maximum download list capacity allowed
+        if (count($newUrls) > 0 || empty($allowedUrls)) {
+            $concurrentLimitError = Setting::checkConcurrentLimit($user, max(1, count($newUrls)));
+            if ($concurrentLimitError) {
+                if ($request->wantsJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => $concurrentLimitError,
+                        'errors' => ['link' => [$concurrentLimitError]],
+                    ], 422);
+                }
+
+                return redirect()->back()->withErrors(['link' => $concurrentLimitError]);
+            }
         }
 
         // Single link special response compatibility

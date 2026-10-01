@@ -107,11 +107,11 @@ export default function SuperUserModal({
                     <div className="space-y-6 relative z-10 flex-1 overflow-y-auto pr-1">
                         <form onSubmit={handleSaveSettings} className="space-y-6">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                {/* Setting 1: Max Concurrent Links */}
+                                {/* Setting 1: Max Download List Capacity */}
                                 <div className="p-5 rounded-2xl bg-slate-900/50 border border-white/10 space-y-3 relative overflow-hidden">
                                     <div className="flex items-center justify-between">
                                         <label className="text-xs font-bold text-slate-200 flex items-center gap-2">
-                                            <span>Eşzamanlı Önbellekleme Sınırı</span>
+                                            <span>Maksimum İndirme Listesi Sınırı</span>
                                         </label>
                                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
                                             Adet Sınırı
@@ -122,14 +122,14 @@ export default function SuperUserModal({
                                         min="0"
                                         value={limits.max_concurrent_links}
                                         onChange={(e) => setLimits((prev) => ({ ...prev, max_concurrent_links: e.target.value }))}
-                                        placeholder="Boş bırakılırsa sınırsız olur (0 = Hiç önbelleyemez)"
+                                        placeholder="Boş bırakılırsa sınırsız (0 = Hiç önbelleyemez)"
                                         className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-white/10 text-white placeholder-slate-500 text-xs focus:outline-none focus:border-indigo-500 transition font-mono"
                                     />
                                     <div className="flex items-start gap-1.5 text-[11px] text-slate-400 leading-relaxed">
                                         <Info className="w-3.5 h-3.5 text-indigo-400 shrink-0 mt-0.5" />
                                         <span>
-                                            Kullanıcıların aynı anda yürütülmekte olan maksimum önbellek/indirme sayısı.
-                                            <strong className="text-amber-300 ml-1">"0" girilirse kullanıcılar hiçbir yeni bağlantı önbelleyemez.</strong>
+                                            Kullanıcının İndirme Listesinde aynı anda tutabileceği maksimum link/dosya sayısı.
+                                            <strong className="text-amber-300 ml-1">Örn: "2" girilirse kullanıcı listeden 1 link silmeden 3. linki ekleyemez. "0" yazılırsa hiç link ekleyemez.</strong>
                                         </span>
                                     </div>
                                 </div>

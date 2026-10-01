@@ -98,6 +98,50 @@ class SystemLimitsTest extends TestCase
             ]);
     }
 
+    public function test_completed_downloads_count_towards_limit_and_deleting_allows_new_link(): void
+    {
+        Setting::set('max_concurrent_links', 2);
+
+        $user = User::factory()->create();
+
+        // Create 2 completed downloads in user's list
+        $d1 = DebridDownload::create([
+            'uuid' => (string) Str::uuid(),
+            'user_id' => $user->id,
+            'original_link' => 'https://mega.nz/file/11111111#aaaaaaa',
+            'link_hash' => md5('https://mega.nz/file/11111111#aaaaaaa'),
+            'status' => 'completed',
+        ]);
+
+        DebridDownload::create([
+            'uuid' => (string) Str::uuid(),
+            'user_id' => $user->id,
+            'original_link' => 'https://mega.nz/file/22222222#bbbbbbb',
+            'link_hash' => md5('https://mega.nz/file/22222222#bbbbbbb'),
+            'status' => 'completed',
+        ]);
+
+        // Attempting to add a 3rd link should fail because list capacity (2) is full
+        $response = $this->actingAs($user)->postJson('/downloads', [
+            'link' => 'https://mega.nz/file/33333333#ccccccc',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJson([
+                'success' => false,
+            ]);
+
+        // Delete 1 download from user's list
+        $d1->delete();
+
+        // Now adding a new link should succeed
+        $response2 = $this->actingAs($user)->postJson('/downloads', [
+            'link' => 'https://mega.nz/file/33333333#ccccccc',
+        ]);
+
+        $response2->assertSuccessful();
+    }
+
     public function test_superadmin_is_exempt_from_concurrent_limit(): void
     {
         config(['services.superuser.username' => 'superadmin']);
